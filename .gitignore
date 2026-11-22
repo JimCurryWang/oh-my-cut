@@ -1,0 +1,84 @@
+# Oh-my-cut：只追蹤文字檔（cut.json、edits.jsonl、outline.md、STATE.md、style.md…）
+# 影片、音訊、縮圖、字體一律不進 git。
+
+# ---- 素材資料夾（整個不追蹤）----
+video_editor/*/raw_footage/
+video_editor/*/references/
+video_editor/*/exports/
+taste/*/videos/
+brand/music/
+
+# ---- work/ 只排除產生出來的媒體，文字檔照常追蹤 ----
+video_editor/*/work/proxies/
+*.preview.mp4
+*.sheet.jpg
+sheet_*.jpg
+
+# ---- 影片 ----
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.avi
+*.webm
+*.mts
+*.m2ts
+*.mxf
+*.insv
+*.lrv
+*.thm
+*.braw
+*.r3d
+
+# ---- 音訊 ----
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.aif
+*.aiff
+*.flac
+*.ogg
+*.opus
+*.caf
+
+# ---- 圖片 ----
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.gif
+*.webp
+*.tif
+*.tiff
+*.bmp
+*.psd
+*.dng
+*.arw
+*.cr2
+*.cr3
+*.nef
+*.raf
+
+# ---- 字體（二進位、可能有授權限制）----
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# ---- Final Cut ----
+*.fcpbundle/
+
+# ---- 本機環境 ----
+.omc/
+.claude/settings.local.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- macOS ----
+.DS_Store
+._*

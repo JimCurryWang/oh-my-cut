@@ -1,0 +1,23 @@
+{
+  "_說明": "「我的品牌」的單一來源。字幕與動態圖卡都讀這份；style 只決定手法，這裡決定長相。填好後把這行刪掉。",
+  "channel": "",
+  "fonts": {
+    "caption": "",
+    "title": "",
+    "latin": ""
+  },
+  "colors": {
+    "primary": "#FFFFFF",
+    "accent": "#FFD23F",
+    "stroke": "#111111"
+  },
+  "caption": {
+    "safe_margin_pct": 6,
+    "max_chars": null
+  },
+  "logo": "brand/logo/logo.png",
+  "intro": null,
+  "outro": null,
+  "music_dir": "brand/music",
+  "lut": null
+}
