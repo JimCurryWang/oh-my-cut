@@ -69,8 +69,15 @@ sheet_*.jpg
 # ---- Final Cut ----
 *.fcpbundle/
 
+# ---- 疊加層引擎（overlay/ 的原始碼追蹤，依賴與輸出不追蹤）----
+node_modules/
+overlay/out/
+overlay/renders/
+
 # ---- 本機環境 ----
-.omc/
+# env.json、smoke.json 是本機的；overlay_engine 是全專案的引擎選擇，要追蹤
+.omc/*
+!.omc/overlay_engine
 .claude/settings.local.json
 
 # ---- Python ----
