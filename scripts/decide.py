@@ -11,7 +11,8 @@ numbers into rules (and only you approve a rule).
         aggregate every source of evidence:
           taste/_me/decisions.jsonl                       A/B picks, spoken feedback
           video_editor/*/work/**/edits.jsonl              chat micro-adjustments (cut_edit.py)
-          video_editor/*/work/fcp/diff*.json              what you changed in Final Cut
+          video_editor/*/work/refine/diff*.json           what you changed in your editor
+          video_editor/*/work/fcp/diff*.json              (older episodes)
         prints counts per rule key and trim habits; keys seen >= 3 times in >= 2
         sequences are flagged as rule candidates.
 """
@@ -88,16 +89,22 @@ def do_report(a):
         for e in deleted:
             roles[e.get("role") or "未標 role"] += 1
         print("- 刪除的片段：" + "、".join(f"{k} {v}" for k, v in roles.items()))
+    added = [e for e in user if e["op"] in ("add", "replace")]
+    if added:
+        roles = defaultdict(int)
+        for e in added:
+            roles[e.get("role") or "未標 role"] += 1
+        print("- 你補上或換掉的片段（我漏選的素材）：" + "、".join(f"{k} {v}" for k, v in roles.items()))
     whys = [e["why"] for e in user if e.get("why")]
     if whys:
         print("- 你給過的理由：")
         for w in whys[-15:]:
             print(f"    · {w}")
 
-    print("\n## Final Cut 精修")
+    print("\n## 剪輯軟體精修")
     found = False
     for ep in eps:
-        for p in sorted(ep.glob("work/fcp/diff*.json")):
+        for p in sorted(ep.glob("work/refine/diff*.json")) + sorted(ep.glob("work/fcp/diff*.json")):
             found = True
             d = json.loads(p.read_text(encoding="utf-8"))
             h, s = d["habits"], d["stats"]["spine"]
@@ -111,9 +118,9 @@ def do_report(a):
             for u in d.get("unparsed", []):
                 un[u["tag"]] += 1
             if un:
-                print("    你在 Final Cut 另外加了：" + "、".join(f"{k}×{v}" for k, v in un.items()))
+                print("    你在剪輯軟體另外加了／我認不出來的：" + "、".join(f"{k}×{v}" for k, v in un.items()))
     if not found:
-        print("- 尚無（跑過 /fcp import 之後才會有）")
+        print("- 尚無（跑過 /refine import 之後才會有）")
     print("\n規則門檻：同一個 key 的同一選擇 ≥ 3 次、且出現在 ≥ 2 個段落，才提議寫進 preferences.md。")
 
 

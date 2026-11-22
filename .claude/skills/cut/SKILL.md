@@ -8,7 +8,7 @@ argument-hint: "<sequence> [episode]"
 
 一次只處理一個段落：`$0`。以下 `SEQ` 代表 `EP/work/sequences/$0`。
 
-目標是**粗剪到 80%**：片段選對、順序對、長度接近。不做字幕、調色、圖卡；細到一兩格的東西使用者會在這裡用對話調，或留到 Final Cut。
+目標是**粗剪到 80%**：片段選對、順序對、長度接近。不做字幕、調色、圖卡；細到一兩格的東西使用者會在這裡用對話調，或留到剪輯軟體精修。
 
 ## 0. 接續或開始
 
@@ -33,7 +33,9 @@ argument-hint: "<sequence> [episode]"
 python3 scripts/captions.py check SEQ/cut.json --index-dir EP/work/index
 ```
 
-切在字中間的切點，用 `cut_edit.py … --by claude` 移到建議的位置。
+切在字中間的切點，用 `cut_edit.py SEQ/cut.json set <id> --in <建議秒數>`（或 `--out`）`--by claude --why "切點移到字邊界"` 移到建議的位置。
+
+再執行 `python3 scripts/cut_edit.py SEQ/cut.json show`：最後若出現「⚠ 需要修正」（例如 `out` 超過素材長度），先修掉，不然預覽會被擋下。
 
 ## 3. 預覽與 QC
 
@@ -56,7 +58,14 @@ python3 scripts/render_cut.py SEQ/cut.json --episode-dir EP
 - 兩種剪法在一個維度上差異明顯，而 preferences 和 style 都沒有答案（例如：節奏快慢、口白先行還是畫面先行、有沒有音樂）
 - 使用者要求
 
-A/B 的規則：兩版只差**一個**說得出名字的維度，其他完全相同。渲染成 `cut.A.preview.mp4` 和 `cut.B.preview.mp4`，說明差在哪裡。使用者選定後：
+A/B 的規則：兩版只差**一個**說得出名字的維度，其他完全相同。A 版是 `cut.json`、B 版是 `cut.B.json`，各自指定輸出檔名渲染：
+
+```bash
+python3 scripts/render_cut.py SEQ/cut.json   --episode-dir EP -o SEQ/cut.A.preview.mp4
+python3 scripts/render_cut.py SEQ/cut.B.json --episode-dir EP -o SEQ/cut.B.preview.mp4
+```
+
+（sheet 會是 `cut.A.preview.sheet.jpg`、`cut.B.preview.sheet.jpg`。）給使用者兩個路徑，說明差在哪裡。使用者選定後：
 
 ```bash
 python3 scripts/decide.py log --episode <ep> --sequence $0 --type ab \
@@ -64,7 +73,7 @@ python3 scripts/decide.py log --episode <ep> --sequence $0 --type ab \
   --chosen "<A 或 B 的描述>" --reason "<使用者說的原因>"
 ```
 
-選中的存成 `cut.json`，另一版刪除。使用者沒說原因就問一句，原因比選擇本身更有用。
+選中的存成 `cut.json`（選 B 就 `mv SEQ/cut.B.json SEQ/cut.json`），另一版和兩支 A/B 預覽刪除，之後的預覽回到預設的 `cut.preview.mp4`。使用者沒說原因就問一句，原因比選擇本身更有用。
 
 ## 5. 微調迴圈
 
@@ -80,8 +89,13 @@ python3 scripts/decide.py log --episode <ep> --sequence $0 --type ab \
 | s8 移到 s2 後面 | `move s8 --after s2` |
 | o2 那個空景早半秒出來 | `shift o2 -0.5s` |
 | 音樂小聲一點 | `gain m1 -22` |
+| s3 從 12.48 秒開始（素材時間） | `set s3 --in 12.48` |
+| s4 後面加 B014 的 3–6.5 秒 | `add --src raw_footage/B014.MOV --in 3 --out 6.5 --after s4 --role broll --note "…"` |
+| 在 2.1 秒蓋一段 B014 空景 | `add --src raw_footage/B014.MOV --in 3 --out 6.5 --at 2.1 --role broll --note "…"` |
+| s6 換成 A009 的 40–45 秒 | `replace s6 --src raw_footage/A009.MOV --in 40 --out 45` |
+| s2 和 s3 中間停半秒黑 | `add --gap 0.5 --after s2` |
 
-表中省略了開頭的 `python3 scripts/cut_edit.py SEQ/cut.json`。正的 `--head` 是晚一點開始，負的 `--tail` 是早一點結束。指令完成會印出新的片段表。
+表中省略了開頭的 `python3 scripts/cut_edit.py SEQ/cut.json`。正的 `--head` 是晚一點開始，負的 `--tail` 是早一點結束。`set`／`add`／`replace` 的 `--in`／`--out` 是素材裡的秒數，`--at` 是時間軸秒數。新片段的 id 自動接著編號（`s8`、`o3`…）。指令完成會印出新的片段表；超出素材長度、檔案不存在、用到參考影片的修改會被拒絕，不會寫入。
 
 不是格數的回饋（「這段太拖」「不夠有感覺」）：提出具體改法（刪哪幾段、哪幾段各縮多少），使用者同意後用同樣的指令執行，`--why` 寫使用者的原話。另外記一筆：
 
@@ -90,7 +104,7 @@ python3 scripts/decide.py log --episode <ep> --sequence $0 --type revision \
   --key <代號> --context "…" --proposed "<原本的做法>" --chosen "<改成的做法>" --reason "…"
 ```
 
-需要換素材或加新片段時，直接編輯 `cut.json`（新 id 接著編號），之後照樣做第 2、3 步的檢查。
+換素材、加片段也一律用 `add`／`replace`，不要手改 `cut.json`：這樣「我漏選了什麼素材」也會留在 `edits.jsonl`，`/learn` 才看得到。之後照樣做第 2、3 步的檢查。
 
 每輪修改後重新渲染預覽。只改了一兩格時可以先問使用者要不要累積幾個修改再一起渲染。
 

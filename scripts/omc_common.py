@@ -2,12 +2,17 @@
 """Shared helpers for Oh-my-cut scripts. Standard library only."""
 from __future__ import annotations
 
+import functools
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from fractions import Fraction
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 # ---------- json ----------
@@ -22,8 +27,31 @@ def save_json(p, obj):
 
 
 # ---------- processes ----------
+FFMPEG_FULL_DIRS = ("/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin")
+
+
+@functools.lru_cache(maxsize=None)
+def tool(name: str) -> str:
+    """Path of ffmpeg / ffprobe. Order: $OMC_FFMPEG / $OMC_FFPROBE, .omc/env.json
+    (written by preflight.sh), Homebrew's keg-only ffmpeg-full (has drawtext), PATH."""
+    cand = [os.environ.get("OMC_" + name.upper())]
+    env = ROOT / ".omc" / "env.json"
+    if env.exists():
+        try:
+            cand.append(json.loads(env.read_text(encoding="utf-8")).get(name))
+        except ValueError:
+            pass
+    cand += [f"{d}/{name}" for d in FFMPEG_FULL_DIRS]
+    for c in cand:
+        if c and Path(c).is_file() and os.access(c, os.X_OK):
+            return c
+    return shutil.which(name) or name
+
+
 def run(cmd, check=True):
     cmd = [str(c) for c in cmd]
+    if cmd and cmd[0] in ("ffmpeg", "ffprobe"):
+        cmd[0] = tool(cmd[0])
     r = subprocess.run(cmd, text=True, capture_output=True, errors="replace")
     if check and r.returncode != 0:
         sys.stderr.write(r.stderr[-3000:] + "\n")
@@ -53,7 +81,14 @@ def tc(sec: float) -> str:
 
 # ---------- media ----------
 def probe(path) -> dict:
-    """ffprobe summary. Width/height are post-rotation (what you actually see)."""
+    """ffprobe summary. Width/height are post-rotation (what you actually see).
+    Cached per (path, size, mtime); returns a copy so callers may modify it."""
+    st = Path(path).stat()
+    return dict(_probe(str(path), st.st_size, st.st_mtime_ns))
+
+
+@functools.lru_cache(maxsize=None)
+def _probe(path: str, _size: int, _mtime: int) -> dict:
     r = run(["ffprobe", "-v", "error", "-print_format", "json",
              "-show_format", "-show_streams", path])
     j = json.loads(r.stdout or "{}")
@@ -79,7 +114,9 @@ def probe(path) -> dict:
                 rot = int(float(tags["rotate"]))
             if abs(rot) % 180 == 90:
                 w, h = h, w
+            vd = s.get("duration")
             info.update(has_video=True, width=w, height=h,
+                        video_duration=float(vd) if vd not in (None, "N/A") else None,
                         fps=[fps.numerator, fps.denominator],
                         vfr=(s.get("avg_frame_rate") not in (None, "0/0", rate)),
                         codec=s.get("codec_name"),
@@ -119,9 +156,22 @@ def layout(cut):
     return out, t
 
 
-def validate(cut, ep: Path | None = None):
-    """Return a list of problems (empty list = ok)."""
+def find_episode(path) -> Path | None:
+    """The episode dir (the nearest ancestor holding episode.json) of a cut.json."""
+    for d in Path(path).resolve().parents:
+        if (d / "episode.json").exists():
+            return d
+    return None
+
+
+def validate(cut, ep: Path | None = None, media: bool = True):
+    """Return a list of problems (empty list = ok).
+
+    With `ep`, source files must exist, and (media=True) every clip must lie inside
+    its source: in >= 0 and out <= source duration (+1 frame of slack). A clip that
+    runs past the end of its file would render short and shift everything after it."""
     problems, seen = [], set()
+    fps = fps_of(cut)
     for kind in ("spine", "overlays", "audio"):
         for c in cut.get(kind, []):
             cid = c.get("id")
@@ -139,9 +189,22 @@ def validate(cut, ep: Path | None = None):
                 problems.append(f"{cid}: out <= in")
             if kind != "spine" and "at" not in c:
                 problems.append(f"{cid}: needs 'at' (timeline seconds)")
-            if ep is not None and not resolve(ep, c["src"], proxy=False).exists() \
-                    and not resolve(ep, c["src"]).exists():
+            if c["in"] < 0:
+                problems.append(f"{cid}: in < 0")
+            parts = Path(os.path.normpath(str(c["src"]))).parts
+            if "references" in parts or "taste" in parts:
+                problems.append(f"{cid}: 參考影片只能分析，不可以進剪輯：{c['src']}")
+            if ep is None:
+                continue
+            orig, px = resolve(ep, c["src"], proxy=False), resolve(ep, c["src"])
+            if not orig.exists() and not px.exists():
                 problems.append(f"{cid}: file not found: {c['src']}")
+                continue
+            if media:
+                dur = probe(orig if orig.exists() else px)["duration"]
+                if dur and c["out"] > dur + float(1 / fps):
+                    problems.append(f"{cid}: out {c['out']:.3f} 超過素材長度 {dur:.3f}"
+                                    f"（{Path(c['src']).name}）→ out 最多 {dur:.3f}")
     return problems
 
 

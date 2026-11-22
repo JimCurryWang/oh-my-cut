@@ -12,12 +12,15 @@
   "size": [3840, 2160],
   "sequences": ["01-hook", "02-arrival", "03-market"],
   "locked": false,
-  "finish_route": "fcp"
+  "editor": "jianying",
+  "finish_route": "editor"
 }
 ```
 
 `fps` 是分數（29.97 = `[30000, 1001]`）。`sequences` 的順序就是 `/assemble` 的順序。
 `locked: true` 之後，`work/timeline/cut.locked.json` 是唯一依據，各段落的 cut.json 不再修改。
+`editor`：精修用的剪輯軟體，`jianying`（剪映／CapCut）／`fcp`（Final Cut Pro）／`other`，`/refine` 依它分支。
+`finish_route`：`editor`（成片從剪輯軟體輸出；舊值 `fcp` 視同）或 `claude`（由 `render_cut.py --final` 渲染）。
 
 ## cut.json
 
@@ -47,7 +50,8 @@
 - `audio`：音樂與音效，`at` 是時間軸秒數。
 - `role`（`aroll`／`broll`／`timelapse`／`drone`…）和 `note` 請盡量填，`/learn` 靠它們歸納「我常刪哪一種」。
 - 組合後的時間軸另有 `sections`（各段起點），匯出到 Final Cut 會變成標記。
-- 從 Final Cut 匯回的檔案另有 `unparsed`（標題、轉場、變速等沒有進 cut.json 的元素）與 `origin`（被切開的片段原本的 id）。
+- 精修後讀回的時間軸（`work/refine/cut.edited.json`）另有 `unparsed`（沒有進 cut.json 的元素：標題、轉場、變速，或成片裡認不出來的畫面）與 `origin`（被切開的片段原本的 id；切開的第二段 id 是 `s3#2`）。
+- 從成片還原（`reconform.py`）的片段另有：`via`（`sound`／`picture`，靠哪一種比對找到）、`confidence`（0–1）、`gain_unknown`（音量量不到，diff 不比較音量）；音樂另有 `edges_approx`（只確認還在，頭尾不準，diff 不比較修剪）。新出現的片段 id 是 `rs1…`、`ro1…`、`ra1…`。
 
 ## style.json（`taste/<style>/profile/style.json`）
 
@@ -88,6 +92,10 @@
 
 `scripts/cut_edit.py` 每次執行自動附加一行（操作、前後狀態、`by`、`why`）。不需要手動維護。
 
-## work/fcp/diff.json
+## work/refine/handoff.json
 
-`scripts/fcpxml_bridge.py diff` 的輸出：`events`（每個片段的修剪、刪除、切開、新增、移動）、`habits`（頭尾修剪的統計）、`unparsed`。
+`jianying_bridge.py export` 寫入：交出去的草稿名稱、草稿位置、用的是哪一份 cut.json、時間。
+
+## work/refine/diff.json
+
+`scripts/cut_diff.py` 的輸出（不論哪個剪輯軟體）：`events`（每個片段的修剪、刪除、切開、新增、移動）、`habits`（頭尾修剪的統計）、`unparsed`。

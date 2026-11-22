@@ -19,7 +19,7 @@ model: inherit
 4. 要確認畫面時看 `sheet_*.jpg`，或抽格：
    `ffmpeg -v error -ss <秒> -t 3 -i EP/work/proxies/<clip>.mp4 -vf "fps=4,scale=320:-2,tile=6x2" -frames:v 1 /tmp/x.jpg`
 5. 寫 `EP/work/sequences/<段落>/cut.json`（格式見 `docs/schemas.md`）。
-6. 執行 `python3 scripts/cut_edit.py <cut.json> show` 確認總長度，再執行 `python3 scripts/captions.py check <cut.json> --index-dir EP/work/index`，把切在字中間的切點移到字的邊界。
+6. 執行 `python3 scripts/cut_edit.py <cut.json> show` 確認總長度；最後出現「⚠ 需要修正」（例如 `out` 超過素材長度）就直接改 cut.json 修掉。再執行 `python3 scripts/captions.py check <cut.json> --index-dir EP/work/index`，把切在字中間的切點用 `cut_edit.py <cut.json> set <id> --in|--out <秒數> --by claude` 移到字的邊界。
 7. 寫 `notes.md`。
 
 ## 剪輯準則（preferences 和 style 沒說的時候才用）

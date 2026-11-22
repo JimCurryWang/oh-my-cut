@@ -33,7 +33,7 @@
 | 4 | `/outline` | `work/outline.md`（模式 A：我給故事；模式 B：你提案） |
 | 5 | `/cut <sequence>` | `work/sequences/<seq>/cut.json`，每個大 cut 獨立粗剪到約 80% |
 | 6 | `/assemble` | `work/timeline/cut.json` |
-| 7 | `/fcp export` → 我在 Final Cut 精修 → `/fcp import` | 鎖定時間軸，並把我的改動變成學習證據 |
+| 7 | `/refine export` → 我在剪輯軟體精修 → `/refine import` | 鎖定時間軸，並把我的改動變成學習證據 |
 | 8 | `/finish` | 字幕、動態圖卡、成片 |
 | 9 | `/learn` | 更新 `taste/_me/preferences.md` |
 
@@ -49,6 +49,7 @@
 ## 慣例
 
 - 路徑：`cut.json` 的 `src` 相對於 episode 資料夾（`video_editor/<episode>/`）。
+- 剪輯軟體：我目前用**剪映**。每一集在 `episode.json` 的 `editor` 記錄（`jianying`／`fcp`／`other`），`/refine` 依它分支：剪映是產生草稿、從匯出的成片還原我的改動；Final Cut 是 FCPXML 往返。
 - 時間：`cut.json` 用秒；我和你溝通用「格」（frame）或秒都可以。格數換算交給腳本。
 - id：spine 片段 `s1, s2…`，疊在上面的畫面 `o1…`，音樂音效 `m1…`。組合後會加上段落前綴（`02-arrival/s3`）。
 - 預覽畫面左上角燒有片段 id、右上角有時間碼，我會用這些指給你看。
@@ -58,7 +59,7 @@
 
 - 不修改、不搬移、不刪除 `raw_footage/` 裡的任何檔案。
 - 不覆蓋 `exports/` 裡的既有檔案，新版本一律加版本號（`_v02`）。
-- 不把影片、音訊、縮圖 commit 進 git（`.gitignore` 已處理；只追蹤文字檔）。
+- 這是公開 repo：影片、音訊、縮圖不進 git；每一集的資料夾（`video_editor/<ep>/`）與參考影片的索引（`taste/*/profile/index/`）也不進 git（`.gitignore` 已處理）。不要用 `git add -f` 繞過。
 - 全片完整解析度渲染很慢，開始前先跟我確認。
 - 沒有我的同意不安裝任何東西。
 - 不把單次的修正當成規則；規則只經由 `/learn` 並由我核准後才寫入。

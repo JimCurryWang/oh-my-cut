@@ -18,18 +18,18 @@ episode 名稱是 `$0`（建議 `年-月-主題`，例如 `2026-11-kyoto`）。�
 video_editor/$0/
 ├── raw_footage/     使用者放原始素材（不會被修改）
 ├── references/      這一集專用的參考（選用）
-├── exports/         成片與交付 Final Cut 的檔案
+├── exports/         成片、交給剪輯軟體的檔案
 ├── work/
 │   ├── index/       素材索引
 │   ├── proxies/     低解析代理檔
 │   ├── sequences/   每個大 cut 一個資料夾
 │   ├── timeline/    組合後的時間軸
-│   └── fcp/         Final Cut 往返
+│   └── refine/      剪輯軟體往返（還原的時間軸、diff）
 ├── episode.json
 └── STATE.md
 ```
 
-## 3. 問兩件事（用 AskUserQuestion，一次問完）
+## 3. 問三件事（用 AskUserQuestion，一次問完）
 
 **Style**：列出 `taste/` 底下除了 `_me` 以外的資料夾作為選項，每個選項的說明取自該 style 的 `style.md` 第一行。使用者也可以輸入新的名稱。
 
@@ -42,9 +42,15 @@ video_editor/$0/
 - A：我已經有想說的故事，幫我對照素材看可不可行
 - B：我還沒想法，先看素材再給我幾個大綱
 
+**精修用的剪輯軟體**（預設沿用上一集的 `editor`；沒有上一集就以 CLAUDE.md 寫的為準，目前是剪映）：
+
+- 剪映／CapCut（`jianying`）：粗剪直接變成剪映草稿；精修完匯出成片，從成片還原你的改動
+- Final Cut Pro（`fcp`）：FCPXML 往返
+- 其他（`other`）：FCPXML（DaVinci Resolve 可讀）或預覽＋片段表；從成片還原改動
+
 ## 4. 寫入狀態
 
-`episode.json`（格式見 `docs/schemas.md`）：先填 `episode`、`style`、`outline_mode`、`language: "zh"`、`locked: false`。`fps` 和 `size` 留給 `/index` 依素材決定。
+`episode.json`（格式見 `docs/schemas.md`）：先填 `episode`、`style`、`outline_mode`、`editor`、`language: "zh"`、`locked: false`。`fps` 和 `size` 留給 `/index` 依素材決定。
 
 `STATE.md`：
 

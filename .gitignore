@@ -1,15 +1,18 @@
-# Oh-my-cut：只追蹤文字檔（cut.json、edits.jsonl、outline.md、STATE.md、style.md…）
-# 影片、音訊、縮圖、字體一律不進 git。
+# Oh-my-cut：這個 repo 只追蹤「工具」本身（scripts、skills、agents、文件、品牌設定、
+# style profile、我的偏好規則）。影片、音訊、縮圖、字體一律不進 git。
 
-# ---- 素材資料夾（整個不追蹤）----
-video_editor/*/raw_footage/
-video_editor/*/references/
-video_editor/*/exports/
+# ---- 每一集的內容（逐字稿、摘要、cut.json、fcpxml 裡的本機路徑…）----
+# 這是公開 repo：每一集整個資料夾都不追蹤。要備份請放進另一個私人 repo。
+video_editor/*/
+
+# ---- 參考影片：影片本身與逐字稿／分析索引（別人的內容，不散布）----
+# style.md / style.json / style.stats.json / manifest.json 仍然追蹤
 taste/*/videos/
+taste/*/profile/index/
+
 brand/music/
 
-# ---- work/ 只排除產生出來的媒體，文字檔照常追蹤 ----
-video_editor/*/work/proxies/
+# ---- 產生出來的媒體（保險起見，放在任何地方都不追蹤）----
 *.preview.mp4
 *.sheet.jpg
 sheet_*.jpg

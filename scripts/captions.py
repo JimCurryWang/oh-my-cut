@@ -8,6 +8,12 @@ Re-run after any timeline change and they stay in sync.
         and    <prefix>.srt  (for Final Cut / YouTube)
   captions.py check <cut.json> --index-dir <ep>/work/index
         lists spine cuts that land inside a spoken word, with the nearest safe point
+  captions.py fcpxml <prefix>.json -o <prefix>.fcpxml [--brand brand/brand.json]
+                    [--style taste/<style>/profile/style.json] [--font F] [--size PX]
+                    [--y PX] [--no-stroke] [--limit N]
+        every caption line as an editable Final Cut title (Basic Title), styled from
+        brand.json (font, colours) and style.json (size). Opens as its own project:
+        copy the titles, paste them into your project at 0 with Option-V.
 
 Only spine clips are captioned (the storyline you hear); muted clips are skipped.
 """
@@ -17,7 +23,10 @@ import argparse
 import math
 import re
 import sys
+import xml.etree.ElementTree as ET
+from fractions import Fraction
 from pathlib import Path
+from xml.dom import minidom
 
 sys.path.insert(0, str(Path(__file__).parent))
 from omc_common import fps_of, layout, load_json, save_json, secs  # noqa: E402
@@ -131,8 +140,8 @@ def do_build(a):
 
     prefix = Path(a.output)
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    save_json(prefix.with_suffix(".json"), {"fps": cut.get("fps"), "duration": total,
-                                            "lines": result})
+    save_json(prefix.with_suffix(".json"), {"fps": cut.get("fps"), "size": cut.get("size"),
+                                            "duration": total, "lines": result})
     prefix.with_suffix(".srt").write_text(
         "".join(f"{c['n']}\n{srt_time(c['start'])} --> {srt_time(c['end'])}\n{c['text']}\n\n"
                 for c in result), encoding="utf-8")
@@ -162,6 +171,88 @@ def do_check(a):
     return 1 if bad else 0
 
 
+BASIC_TITLE = (".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/"
+               "Basic Title.moti")
+POSITION_KEY = "9999/999166631/999166633/1/100/101"
+
+
+def colour(hexstr: str, default="1 1 1 1") -> str:
+    """'#FFD23F' -> '1 0.8235 0.2471 1' (FCPXML colour)."""
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", (hexstr or "").strip())
+    if not m:
+        return default
+    v = [int(m.group(1)[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    return " ".join(f"{x:.4g}" for x in v) + " 1"
+
+
+def do_fcpxml(a):
+    from fcpxml_bridge import format_name, rt
+    cap = load_json(a.captions)
+    n, d = cap.get("fps") or [30, 1]
+    fps = Fraction(int(n), int(d))
+    fd = 1 / fps
+    w, h = cap.get("size") or [1920, 1080]
+    brand = load_json(a.brand) if a.brand and Path(a.brand).exists() else {}
+    style = load_json(a.style) if a.style and Path(a.style).exists() else {}
+    fonts, colors = brand.get("fonts") or {}, brand.get("colors") or {}
+    font = a.font or fonts.get("caption")
+    if not font:
+        font = "PingFang TC"
+        print("⚠ brand.json 沒有 fonts.caption，暫用 PingFang TC")
+    pct = (style.get("captions") or {}).get("size_pct_of_height") or 5.5
+    size = a.size or round(h * float(pct) / 100)
+    margin = float((brand.get("caption") or {}).get("safe_margin_pct") or 6)
+    y = a.y if a.y is not None else -round(h / 2 - h * margin / 100 - size * 0.6)
+
+    def fr(sec):
+        return int(round(Fraction(str(sec)) * fps))
+
+    total = fr(cap["duration"])
+    root = ET.Element("fcpxml", version="1.10")
+    res = ET.SubElement(root, "resources")
+    fmt = {"id": "r1", "frameDuration": rt(fd), "width": str(w), "height": str(h)}
+    if format_name(w, h, fps):
+        fmt["name"] = format_name(w, h, fps)
+    ET.SubElement(res, "format", fmt)
+    ET.SubElement(res, "effect", id="r2", name="Basic Title", uid=BASIC_TITLE)
+    name = a.name or Path(a.captions).parent.parent.parent.name or "captions"
+    ev = ET.SubElement(ET.SubElement(root, "library"), "event", name=f"{name} 字幕")
+    seq = ET.SubElement(ET.SubElement(ev, "project", name=f"{name} 字幕"), "sequence",
+                        format="r1", duration=rt(total * fd), tcStart="0s", tcFormat="NDF",
+                        audioLayout="stereo", audioRate="48k")
+    gap = ET.SubElement(ET.SubElement(seq, "spine"), "gap", name="Gap", offset="0s",
+                        start="0s", duration=rt(total * fd))
+    lines = cap["lines"][:a.limit] if a.limit else cap["lines"]
+    for i, ln in enumerate(lines, 1):
+        f0, f1 = fr(ln["start"]), fr(ln["end"])
+        if f1 <= f0:
+            f1 = f0 + 1
+        t = ET.SubElement(gap, "title", ref="r2", lane="1", offset=rt(f0 * fd),
+                          duration=rt((f1 - f0) * fd), name=f"{i:03d} {ln['text'][:20]}")
+        ET.SubElement(t, "param", name="Position", key=POSITION_KEY, value=f"0 {y}")
+        ts_id = f"ts{i}"
+        ET.SubElement(ET.SubElement(t, "text"), "text-style", ref=ts_id).text = ln["text"]
+        style_attrs = {"font": font, "fontSize": str(size), "fontColor": colour(colors.get("primary")),
+                       "alignment": "center", "bold": "1"}
+        if not a.no_stroke:
+            style_attrs.update(strokeColor=colour(colors.get("stroke"), "0 0 0 1"),
+                               strokeWidth=f"{max(1, round(size * 0.05)):g}")
+        ET.SubElement(ET.SubElement(t, "text-style-def", id=ts_id), "text-style", style_attrs)
+
+    xml = minidom.parseString(ET.tostring(root, encoding="unicode")).toprettyxml(indent="  ")
+    xml = xml.replace('<?xml version="1.0" ?>',
+                      '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>')
+    # whitespace inside <text> is text: keep the caption exactly as written
+    xml = re.sub(r"<text>\s+<text-style", "<text><text-style", xml)
+    xml = re.sub(r"</text-style>\s+</text>", "</text-style></text>", xml)
+    out = Path(a.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(xml, encoding="utf-8")
+    print(f"fcpxml: {len(lines)} 行字幕 → {out}（{font} {size}px，位置 0 {y}，{w}x{h}）")
+    print("Final Cut：File > Import > XML… → 打開「字幕」專案 → 選取所有標題 ⌘C → "
+          "回到你的專案，播放頭移到最開頭 → ⌥V（貼上為連接片段）")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -179,9 +270,22 @@ def main():
     c.add_argument("cut")
     c.add_argument("--index-dir", required=True)
     c.add_argument("--tolerance", type=float, default=0.03)
+    x = sub.add_parser("fcpxml")
+    x.add_argument("captions", help="captions.json written by `build`")
+    x.add_argument("-o", "--output", required=True)
+    x.add_argument("--brand", default=str(Path(__file__).resolve().parent.parent / "brand" / "brand.json"))
+    x.add_argument("--style")
+    x.add_argument("--font")
+    x.add_argument("--size", type=int, help="font size in px (default: style.json size_pct_of_height)")
+    x.add_argument("--y", type=int, help="vertical position from centre, px (negative = lower)")
+    x.add_argument("--no-stroke", action="store_true")
+    x.add_argument("--limit", type=int, help="only the first N lines (a sample to check the look)")
+    x.add_argument("--name")
     a = ap.parse_args()
     if a.cmd == "build":
         do_build(a)
+    elif a.cmd == "fcpxml":
+        do_fcpxml(a)
     else:
         sys.exit(do_check(a))
 

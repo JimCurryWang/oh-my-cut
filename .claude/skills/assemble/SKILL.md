@@ -49,5 +49,5 @@ python3 scripts/render_cut.py EP/work/timeline/cut.json --episode-dir EP
 
 使用者認可整體後，更新 `EP/STATE.md`（階段：已組合，總長度），然後用 AskUserQuestion 問接下來走哪條路：
 
-- **匯出到 Final Cut 精修（建議）** → `/fcp export`
+- **交給剪輯軟體精修（建議）** → `/refine export`（依 `episode.json` 的 `editor`：剪映產生草稿、Final Cut 產生 FCPXML）
 - **直接鎖定，在這裡完成** → 複製 `work/timeline/cut.json` 為 `work/timeline/cut.locked.json`，`episode.json` 設 `locked: true`、`finish_route: "claude"`，接 `/finish`

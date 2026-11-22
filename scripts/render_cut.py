@@ -15,20 +15,33 @@ overlay has gain_db.
 transparent overlay movies (captions / graphics rendered by the overlay engine,
 same length as the timeline) on top, applies an optional LUT to the footage only,
 and normalises loudness. HDR sources are not tone-mapped here — finish those in
-Final Cut.
+your editor.
+
+Timing is exact: every segment is cut to its frame count and to a sample count
+taken from the cumulative timeline (rounding never accumulates), short sources are
+padded rather than allowed to shift what follows, and the result is checked against
+cut.json. Intermediates keep audio as uncompressed PCM; AAC happens once, at the end.
 """
 from __future__ import annotations
 
 import argparse
 import sys
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from omc_common import (fps_of, layout, load_json, probe, resolve, run,  # noqa: E402
                         secs, tc, validate)
 
-AAC = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+SR = 48000
+PCM = ["-c:a", "pcm_s24le", "-ar", str(SR), "-ac", "2"]          # intermediates: lossless
+# no timecode / data tracks in intermediates: they stretch a segment's duration
+CLEAN = ["-dn", "-map_metadata", "-1", "-write_tmcd", "0"]
+
+
+def aac(final: bool):
+    return ["-c:a", "aac", "-b:a", "320k" if final else "192k", "-ar", str(SR), "-ac", "2"]
 
 
 def x264(crf: int, preset: str):
@@ -85,6 +98,7 @@ def main():
     proxy = not a.final
     seg_enc = x264(12, "veryfast") if a.final else x264(25, "veryfast")   # intermediate
     out_enc = x264(18, "medium") if a.final else x264(25, "veryfast")
+    out_aac = aac(a.final)
     lufs = a.lufs if a.lufs is not None else (-14.0 if a.final else None)
     items, total = layout(cut)
     total_s = float(total / fps)
@@ -92,34 +106,42 @@ def main():
     with tempfile.TemporaryDirectory(prefix="omc_") as tmp:
         tmp = Path(tmp)
         concat = []
+        def sample(frame):  # timeline frame -> audio sample, from the timeline origin
+            return int(round(Fraction(frame) / fps * SR))
+
         for i, (c, t0, d) in enumerate(items):
-            seg, dur = tmp / f"seg_{i:04d}.mp4", float(d / fps)
-            vf = fit(w, h, fps)
+            seg, dur = tmp / f"seg_{i:04d}.mov", float(d / fps)
+            ns = sample(t0 + d) - sample(t0)   # exact sample count for this segment
+            trim = f"apad=whole_len={ns},atrim=end_sample={ns}"
+            # tpad: if the source ends a frame early, hold its last frame instead of
+            # letting the segment come out short and drag everything after it
+            # setpts: after -ss the first frame is not at 0, and concat would turn
+            # that offset into a gap at every cut
+            vf = "setpts=PTS-STARTPTS," + fit(w, h, fps) + ",tpad=stop_mode=clone:stop=-1"
             if burn:
                 name = "gap" if "gap" in c else Path(c["src"]).stem
                 vf += "," + label(f"{c['id']}  {name}", "8", max(12, h // 26))
+            silence = ["-f", "lavfi", "-i", f"anullsrc=r={SR}:cl=stereo"]
             if "gap" in c:
                 cmd = ["ffmpeg", "-y", "-v", "error",
-                       "-f", "lavfi", "-t", f"{dur:.4f}", "-i", f"color=c=black:s={w}x{h}",
-                       "-f", "lavfi", "-t", f"{dur:.4f}", "-i", "anullsrc=r=48000:cl=stereo",
-                       "-vf", vf]
+                       "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}:r={fps.numerator}/{fps.denominator}",
+                       *silence, "-map", "0:v:0", "-map", "1:a:0", "-af", trim]
             else:
                 src = resolve(ep, c["src"], proxy)
                 info = probe(src)
                 cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{float(c['in']):.4f}",
                        "-t", f"{dur + 0.5:.4f}", "-i", src]
                 if info["has_audio"] and not c.get("mute"):
-                    cmd += ["-af", f"aresample=48000,volume={float(c.get('gain_db', 0))}dB"]
+                    cmd += ["-map", "0:v:0", "-map", "0:a:0", "-af",
+                            f"aresample={SR},volume={float(c.get('gain_db', 0))}dB,{trim}"]
                 else:
-                    cmd += ["-f", "lavfi", "-t", f"{dur:.4f}", "-i",
-                            "anullsrc=r=48000:cl=stereo", "-map", "0:v:0", "-map", "1:a:0"]
-                cmd += ["-vf", vf]
-            run(cmd + ["-frames:v", d, "-t", f"{dur:.4f}", *seg_enc, *AAC, seg])
+                    cmd += [*silence, "-map", "0:v:0", "-map", "1:a:0", "-af", trim]
+            run(cmd + ["-vf", vf, "-frames:v", d, *seg_enc, *PCM, *CLEAN, seg])
             concat.append(f"file '{seg}'\n")
         (tmp / "list.txt").write_text("".join(concat))
-        base = tmp / "base.mp4"
+        base = tmp / "base.mov"
         run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
-             "-i", tmp / "list.txt", "-c", "copy", base])
+             "-i", tmp / "list.txt", "-c", "copy", *CLEAN, base])
 
         inputs, fc, vlast, amix, n = ["-i", base], [], "[0:v]", ["[0:a]"], 1
         for o in cut.get("overlays", []):
@@ -165,17 +187,21 @@ def main():
 
         out.parent.mkdir(parents=True, exist_ok=True)
         if not fc:
-            run(["ffmpeg", "-y", "-v", "error", "-i", base, "-c", "copy",
+            run(["ffmpeg", "-y", "-v", "error", "-i", base, "-c:v", "copy", *out_aac,
                  "-movflags", "+faststart", out])
         else:
-            maps = ["-map", vlast if vlast != "[0:v]" else "0:v"]
+            # end both streams inside the graph; an output-level -frames:v would close
+            # the file while loudnorm's look-ahead still holds the last of the audio
+            fc.append(f"{vlast}trim=end_frame={total}[vend]")
+            maps = ["-map", "[vend]"]
             norm = f"loudnorm=I={lufs}:TP=-1.5:LRA=11," if lufs is not None else ""
             mix = (f"amix=inputs={len(amix)}:normalize=0:duration=first," if len(amix) > 1
                    else "")
-            fc.append("".join(amix) + f"{mix}{norm}aresample=48000[aout]")
+            fc.append("".join(amix) + f"{mix}{norm}aresample={SR},"
+                      f"apad=whole_len={sample(total)},atrim=end_sample={sample(total)}[aout]")
             maps += ["-map", "[aout]"]
             run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(fc),
-                 *maps, "-t", f"{total_s:.4f}", *out_enc, *AAC, "-movflags", "+faststart", out])
+                 *maps, *out_enc, *out_aac, "-movflags", "+faststart", out])
 
         if not a.no_sheet and items:
             mids = [t0 + d // 2 for _, t0, d in items]
@@ -187,6 +213,12 @@ def main():
                  "-vf", f"select='{sel}',scale=320:-2,tile={cols}x{rows}",
                  "-frames:v", "1", "-q:v", "4", sheet], check=False)
 
+    # the rendered file must be as long as cut.json says, or the burned-in
+    # timecode would no longer match the clip table
+    info = probe(out)  # the picture decides: AAC pads its last packet, so the container runs long
+    got = info.get("video_duration") or info["duration"]
+    if abs(got - total_s) > 1.5 / float(fps):
+        print(f"⚠ 長度不符：cut.json {total_s:.3f}s，渲染結果 {got:.3f}s——時間碼可能對不上，請回報")
     print(f"{'final' if a.final else 'preview'}: {out}  ({tc(total_s)}, {len(items)} clips, "
           f"{len(cut.get('overlays', []))} overlays, {len(cut.get('audio', []))} audio)")
     print("| id | timeline | 長度 | src | in–out |\n|---|---|---|---|---|")

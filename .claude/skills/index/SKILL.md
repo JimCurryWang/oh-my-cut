@@ -46,7 +46,7 @@ python3 scripts/index_clip.py --build-map EP/work/index -o EP/work/footage_map.m
 ## 6. 回報並更新 STATE.md
 
 - 素材數、總長度、有口白的支數
-- 警告：HDR 素材（預覽顏色會偏灰，調色以 Final Cut 為準）、沒有聲音的檔案、索引失敗的檔案
+- 警告：HDR 素材（預覽顏色會偏灰，調色以剪輯軟體為準）、沒有聲音的檔案、索引失敗的檔案
 - 下一步：`/outline`
 
 `STATE.md` 的階段改為「已索引」。

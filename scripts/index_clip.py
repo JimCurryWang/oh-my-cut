@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from omc_common import load_json, probe, run, save_json, tc  # noqa: E402
+from omc_common import load_json, probe, run, save_json, tc, tool  # noqa: E402
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 DEFAULT_PROMPT = "以下是繁體中文的旅遊與生活 vlog 口白。"
@@ -118,12 +118,31 @@ def sheets(src: Path, out: Path, duration: float) -> dict:
 
 
 def to_traditional():
+    """Simplified -> Traditional (Taiwan glyphs) WITHOUT swapping vocabulary: s2tw, not
+    s2twp. The speaker is Taiwanese; whatever words they said stay as said. Only
+    matters when Whisper drifts into Simplified; Traditional input passes unchanged."""
     try:
         from opencc import OpenCC
-        cc = OpenCC("s2twp")
-        return cc.convert
+        return OpenCC("s2tw").convert
     except Exception:
         return None
+
+
+def convert_words(words, conv):
+    """Convert a segment's words with the whole segment as context, then hand each word
+    its slice back. Single characters are ambiguous (发 -> 發/髮, 面 -> 面/麵, 干 -> 乾/幹);
+    only the surrounding phrase decides. s2tw maps character for character, so the
+    lengths line up; if they ever don't, fall back to word by word."""
+    raw = [w["w"] for w in words]
+    joined = "".join(raw)
+    out = conv(joined)
+    if len(out) != len(joined):
+        return [conv(x) for x in raw]
+    pieces, i = [], 0
+    for x in raw:
+        pieces.append(out[i:i + len(x)])
+        i += len(x)
+    return pieces
 
 
 def load_glossary(path: Path | None):
@@ -159,8 +178,10 @@ def write_transcript(out: Path, segments, lang, engine, duration, glossary):
         text = fix(s["text"]).strip()
         for a, b in glossary:
             text = text.replace(a, b)
-        words = [{"w": fix(w["w"]).strip(), "start": round(float(w["start"]), 3),
-                  "end": round(float(w["end"]), 3)} for w in s.get("words", []) if w["w"].strip()]
+        ws = [w for w in s.get("words", []) if w["w"].strip()]
+        texts = convert_words(ws, conv) if conv else [w["w"] for w in ws]
+        words = [{"w": t.strip(), "start": round(float(w["start"]), 3),
+                  "end": round(float(w["end"]), 3)} for w, t in zip(ws, texts)]
         clean.append({"start": round(float(s["start"]), 3), "end": round(float(s["end"]), 3),
                       "text": text, "words": words})
     save_json(out / "transcript.json", {"language": lang, "engine": engine,
@@ -230,7 +251,7 @@ def main():
     dur = meta["duration"]
     warnings = []
     if meta.get("hdr"):
-        warnings.append("HDR 素材：proxy 與預覽顏色會偏灰，調色請以原檔 / Final Cut 為準")
+        warnings.append("HDR 素材：proxy 與預覽顏色會偏灰，調色請以原檔／剪輯軟體為準")
     if meta.get("vfr"):
         warnings.append("可變影格率 (VFR)：proxy 已轉成固定影格率")
 
@@ -269,6 +290,6 @@ def main():
 
 
 if __name__ == "__main__":
-    if shutil.which("ffmpeg") is None:
+    if shutil.which(tool("ffmpeg")) is None:
         raise SystemExit("ffmpeg not found — run /setup")
     main()
